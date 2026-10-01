@@ -1,0 +1,169 @@
+name: Sync stable upstream and release AnyTLS REALITY
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Official stable tag; empty follows latest'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anytls-stable-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      needed: ${{ steps.source.outputs.needed }}
+      tag: ${{ steps.source.outputs.tag }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check release selection logic
+        run: python3 .github/fork/test_prepare.py
+      - name: Synchronize official release and apply the audited patch
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ inputs.upstream_tag }}
+        run: python3 .github/fork/prepare.py
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64, label: amd64-v1, alias: amd64-compatible, go: '1.26', suffix: ''}
+          - {goos: linux, goarch: arm64, label: arm64, alias: '', go: '1.26', suffix: ''}
+          - {goos: darwin, goarch: amd64, label: amd64-v1, alias: amd64-compatible, go: '1.26', suffix: ''}
+          - {goos: darwin, goarch: arm64, label: arm64, alias: '', go: '1.26', suffix: ''}
+          - {goos: windows, goarch: amd64, label: amd64-v1, alias: amd64-compatible, go: '1.26', suffix: ''}
+          - {goos: windows, goarch: amd64, label: amd64-v1-go120, alias: amd64-compatible-go120, go: '1.20', suffix: '-go120'}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      # Same toolchain action and MetaCubeX download source as upstream.
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-download-base-url: https://github.com/MetaCubeX/go/releases/download/build
+          go-version: ${{ matrix.go }}
+      - name: Verify AnyTLS configuration and fork update source
+        if: matrix.goarch == 'amd64' && (matrix.goos == 'linux' || matrix.suffix == '-go120')
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+        run: go test ./adapter/outbound ./component/updater -run 'TestAnyTLSReality|TestForkReleaseSource' -count=1 -timeout=120s
+      - name: Build and pack
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: v1
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+          LABEL: ${{ matrix.label }}
+          ALIAS: ${{ matrix.alias }}
+          CORE_SUFFIX: ${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          go version
+          mkdir -p dist
+          base="mihomo-${GOOS}-${LABEL}"
+          binary="$base"
+          if [ "$GOOS" = windows ]; then binary="${base}.exe"; fi
+          go build -tags with_gvisor -trimpath -ldflags "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$TAG -X github.com/metacubex/mihomo/constant.BuildTime=$(date -u +%FT%TZ) -X github.com/metacubex/mihomo/component/updater.CoreFileSuffix=$CORE_SUFFIX" -o "$binary" .
+          if [ "$GOOS" = windows ]; then
+            zip -j "dist/${base}-${TAG}.zip" "$binary"
+            if [ -n "$ALIAS" ]; then cp "dist/${base}-${TAG}.zip" "dist/mihomo-${GOOS}-${ALIAS}-${TAG}.zip"; fi
+          else
+            gzip -c "$binary" > "dist/${base}-${TAG}.gz"
+            if [ -n "$ALIAS" ]; then cp "dist/${base}-${TAG}.gz" "dist/mihomo-${GOOS}-${ALIAS}-${TAG}.gz"; fi
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.goos }}-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  integration:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.needed == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: tests/cli/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-windows-amd64-v1
+          path: artifacts/downloaded
+      - name: Prepare patched and official comparison executables
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force logs,artifacts/official | Out-Null
+          Expand-Archive "artifacts/downloaded/mihomo-windows-amd64-v1-$env:TAG.zip" artifacts/patched
+          Copy-Item artifacts/patched/*.exe artifacts/mihomo-anytls-reality.exe
+          gh release download $env:TAG --repo MetaCubeX/mihomo --pattern "mihomo-windows-amd64-compatible-$env:TAG.zip" --dir artifacts/official
+          if ($LASTEXITCODE -ne 0) { throw 'Official comparison download failed' }
+          Expand-Archive "artifacts/official/mihomo-windows-amd64-compatible-$env:TAG.zip" artifacts/official/extracted
+          Copy-Item artifacts/official/extracted/*.exe artifacts/mihomo-official.exe
+      - name: Verify REALITY, TCP, UDP and negative authentication controls
+        working-directory: tests/cli
+        shell: pwsh
+        run: |
+          go test -count=1 -v -timeout=180s . 2>&1 | Tee-Object ../../logs/cli-integration.log
+          if ($LASTEXITCODE -ne 0) { throw 'AnyTLS REALITY integration failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-evidence
+          path: |
+            logs/*
+            artifacts/cli-*/**
+          retention-days: 14
+
+  publish:
+    needs: [prepare, build, integration]
+    if: needs.prepare.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: core-*
+          path: dist
+          merge-multiple: true
+      - name: Verify the complete asset set and publish atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 .github/fork/publish.py

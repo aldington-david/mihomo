@@ -1,0 +1,102 @@
+diff --git a/adapter/outbound/anytls.go b/adapter/outbound/anytls.go
+index 9978661..d63a42b 100644
+--- a/adapter/outbound/anytls.go
++++ b/adapter/outbound/anytls.go
+@@ -10,6 +10,7 @@ import (
+ 
+ 	N "github.com/metacubex/mihomo/common/net"
+ 	"github.com/metacubex/mihomo/component/proxydialer"
++	tlsC "github.com/metacubex/mihomo/component/tls"
+ 	C "github.com/metacubex/mihomo/constant"
+ 	"github.com/metacubex/mihomo/transport/anytls"
+ 	"github.com/metacubex/mihomo/transport/vmess"
+@@ -33,6 +34,7 @@ type AnyTLSOption struct {
+ 	ALPN                     []string         `proxy:"alpn,omitempty"`
+ 	SNI                      string           `proxy:"sni,omitempty"`
+ 	ECHOpts                  ECHOptions       `proxy:"ech-opts,omitempty"`
++	RealityOpts              *RealityOptions  `proxy:"reality-opts,omitempty"`
+ 	ShadowTLSOpts            ShadowTLSOptions `proxy:"shadow-tls-opts,omitempty"`
+ 	RestlsOpts               RestlsOptions    `proxy:"restls-opts,omitempty"`
+ 	JLSOpts                  JLSOptions       `proxy:"jls-opts,omitempty"`
+@@ -125,6 +127,22 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	var realityConfig *tlsC.RealityConfig
++	if option.RealityOpts != nil {
++		realityConfig, err = option.RealityOpts.Parse()
++		if err != nil {
++			return nil, err
++		}
++		if realityConfig == nil {
++			return nil, errors.New("REALITY requires a public-key")
++		}
++		if _, ok := tlsC.GetFingerprint(option.ClientFingerprint); !ok {
++			return nil, errors.New("REALITY requires a valid client-fingerprint")
++		}
++		if echConfig != nil {
++			return nil, errors.New("REALITY and ECH are mutually exclusive")
++		}
++	}
+ 	shadowTLSConfig, err := option.ShadowTLSOpts.Parse()
+ 	if err != nil {
+ 		return nil, err
+@@ -137,7 +155,10 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	securityModes := make([]string, 0, 3)
++	securityModes := make([]string, 0, 4)
++	if realityConfig != nil {
++		securityModes = append(securityModes, "REALITY")
++	}
+ 	if shadowTLSConfig != nil {
+ 		securityModes = append(securityModes, "ShadowTLS")
+ 	}
+@@ -160,6 +181,7 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
+ 		PrivateKey:        option.PrivateKey,
+ 		ClientFingerprint: option.ClientFingerprint,
+ 		ECH:               echConfig,
++		Reality:           realityConfig,
+ 		ShadowTLS:         shadowTLSConfig,
+ 		Restls:            restlsConfig,
+ 		JLS:               jlsConfig,
+diff --git a/component/updater/update_core.go b/component/updater/update_core.go
+index 0afa94a..a84246d 100644
+--- a/component/updater/update_core.go
++++ b/component/updater/update_core.go
+@@ -24,11 +24,11 @@ import (
+ )
+ 
+ const (
+-	baseReleaseURL    = "https://github.com/MetaCubeX/mihomo/releases/latest/download/"
+-	versionReleaseURL = "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt"
++	baseReleaseURL    = "https://github.com/aldington-david/mihomo/releases/latest/download/"
++	versionReleaseURL = "https://github.com/aldington-david/mihomo/releases/latest/download/version.txt"
+ 
+-	baseAlphaURL    = "https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/"
+-	versionAlphaURL = "https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/version.txt"
++	baseAlphaURL    = baseReleaseURL
++	versionAlphaURL = versionReleaseURL
+ 
+ 	// MaxPackageFileSize is a maximum package file length in bytes. The largest
+ 	// package whose size is limited by this constant currently has the size of
+@@ -49,6 +49,9 @@ type CoreUpdater struct {
+ 
+ var DefaultCoreUpdater = CoreUpdater{}
+ 
++// CoreFileSuffix keeps the Windows 7 build on its compatible Go toolchain.
++var CoreFileSuffix string
++
+ func (u *CoreUpdater) CoreBaseName() string {
+ 	switch runtime.GOARCH {
+ 	case "arm":
+@@ -70,7 +73,7 @@ func (u *CoreUpdater) CoreBaseName() string {
+ 			return fmt.Sprintf("mihomo-%s-%s", runtime.GOOS, runtime.GOARCH)
+ 		}
+ 		// mihomo-linux-amd64-v1
+-		return fmt.Sprintf("mihomo-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
++		return fmt.Sprintf("mihomo-%s-%s-%s%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64, CoreFileSuffix)
+ 	default:
+ 		// mihomo-linux-386
+ 		// mihomo-linux-mips64

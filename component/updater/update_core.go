@@ -24,11 +24,11 @@ import (
 )
 
 const (
-	baseReleaseURL    = "https://github.com/MetaCubeX/mihomo/releases/latest/download/"
-	versionReleaseURL = "https://github.com/MetaCubeX/mihomo/releases/latest/download/version.txt"
+	baseReleaseURL    = "https://github.com/aldington-david/mihomo/releases/latest/download/"
+	versionReleaseURL = "https://github.com/aldington-david/mihomo/releases/latest/download/version.txt"
 
-	baseAlphaURL    = "https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/"
-	versionAlphaURL = "https://github.com/MetaCubeX/mihomo/releases/download/Prerelease-Alpha/version.txt"
+	baseAlphaURL    = baseReleaseURL
+	versionAlphaURL = versionReleaseURL
 
 	// MaxPackageFileSize is a maximum package file length in bytes. The largest
 	// package whose size is limited by this constant currently has the size of
@@ -48,6 +48,9 @@ type CoreUpdater struct {
 }
 
 var DefaultCoreUpdater = CoreUpdater{}
+
+// CoreFileSuffix keeps the Windows 7 build on its compatible Go toolchain.
+var CoreFileSuffix string
 
 func (u *CoreUpdater) CoreBaseName() string {
 	switch runtime.GOARCH {
@@ -70,7 +73,7 @@ func (u *CoreUpdater) CoreBaseName() string {
 			return fmt.Sprintf("mihomo-%s-%s", runtime.GOOS, runtime.GOARCH)
 		}
 		// mihomo-linux-amd64-v1
-		return fmt.Sprintf("mihomo-%s-%s-%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64)
+		return fmt.Sprintf("mihomo-%s-%s-%s%s", runtime.GOOS, runtime.GOARCH, features.GOAMD64, CoreFileSuffix)
 	default:
 		// mihomo-linux-386
 		// mihomo-linux-mips64

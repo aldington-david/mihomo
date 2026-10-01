@@ -10,6 +10,7 @@ import (
 
 	N "github.com/metacubex/mihomo/common/net"
 	"github.com/metacubex/mihomo/component/proxydialer"
+	tlsC "github.com/metacubex/mihomo/component/tls"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/transport/anytls"
 	"github.com/metacubex/mihomo/transport/vmess"
@@ -33,6 +34,7 @@ type AnyTLSOption struct {
 	ALPN                     []string         `proxy:"alpn,omitempty"`
 	SNI                      string           `proxy:"sni,omitempty"`
 	ECHOpts                  ECHOptions       `proxy:"ech-opts,omitempty"`
+	RealityOpts              *RealityOptions  `proxy:"reality-opts,omitempty"`
 	ShadowTLSOpts            ShadowTLSOptions `proxy:"shadow-tls-opts,omitempty"`
 	RestlsOpts               RestlsOptions    `proxy:"restls-opts,omitempty"`
 	JLSOpts                  JLSOptions       `proxy:"jls-opts,omitempty"`
@@ -125,6 +127,22 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 	if err != nil {
 		return nil, err
 	}
+	var realityConfig *tlsC.RealityConfig
+	if option.RealityOpts != nil {
+		realityConfig, err = option.RealityOpts.Parse()
+		if err != nil {
+			return nil, err
+		}
+		if realityConfig == nil {
+			return nil, errors.New("REALITY requires a public-key")
+		}
+		if _, ok := tlsC.GetFingerprint(option.ClientFingerprint); !ok {
+			return nil, errors.New("REALITY requires a valid client-fingerprint")
+		}
+		if echConfig != nil {
+			return nil, errors.New("REALITY and ECH are mutually exclusive")
+		}
+	}
 	shadowTLSConfig, err := option.ShadowTLSOpts.Parse()
 	if err != nil {
 		return nil, err
@@ -137,7 +155,10 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 	if err != nil {
 		return nil, err
 	}
-	securityModes := make([]string, 0, 3)
+	securityModes := make([]string, 0, 4)
+	if realityConfig != nil {
+		securityModes = append(securityModes, "REALITY")
+	}
 	if shadowTLSConfig != nil {
 		securityModes = append(securityModes, "ShadowTLS")
 	}
@@ -160,6 +181,7 @@ func NewAnyTLS(option AnyTLSOption) (*AnyTLS, error) {
 		PrivateKey:        option.PrivateKey,
 		ClientFingerprint: option.ClientFingerprint,
 		ECH:               echConfig,
+		Reality:           realityConfig,
 		ShadowTLS:         shadowTLSConfig,
 		Restls:            restlsConfig,
 		JLS:               jlsConfig,

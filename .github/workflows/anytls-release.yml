@@ -115,6 +115,10 @@ jobs:
     needs: [prepare, build]
     if: needs.prepare.outputs.needed == 'true'
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        label: [amd64-v1, amd64-v1-go120]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,17 +129,18 @@ jobs:
           cache-dependency-path: tests/cli/go.sum
       - uses: actions/download-artifact@v4
         with:
-          name: core-windows-amd64-v1
+          name: core-windows-${{ matrix.label }}
           path: artifacts/downloaded
       - name: Prepare patched and official comparison executables
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          LABEL: ${{ matrix.label }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force logs,artifacts/official | Out-Null
-          Expand-Archive "artifacts/downloaded/mihomo-windows-amd64-v1-$env:TAG.zip" artifacts/patched
+          Expand-Archive "artifacts/downloaded/mihomo-windows-$env:LABEL-$env:TAG.zip" artifacts/patched
           Copy-Item artifacts/patched/*.exe artifacts/mihomo-anytls-reality.exe
           gh release download $env:TAG --repo MetaCubeX/mihomo --pattern "mihomo-windows-amd64-compatible-$env:TAG.zip" --dir artifacts/official
           if ($LASTEXITCODE -ne 0) { throw 'Official comparison download failed' }
@@ -150,7 +155,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: integration-evidence
+          name: integration-evidence-${{ matrix.label }}
           path: |
             logs/*
             artifacts/cli-*/**

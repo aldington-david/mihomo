@@ -65,8 +65,8 @@ def main():
         output(needed="true", tag=tag, sha=ref["object"]["sha"])
         return
     source = control / "build-source"
-    git("clone", "--no-checkout", "--filter=blob:none", "--no-tags", "--depth", "1", f"https://github.com/{UPSTREAM}.git", str(source))
-    git("fetch", "--no-tags", "--depth", "1", "origin", "refs/tags/" + tag, cwd=source)
+    git("clone", "--no-checkout", "--filter=blob:none", "--no-tags", f"https://github.com/{UPSTREAM}.git", str(source))
+    git("fetch", "--no-tags", "origin", "refs/tags/" + tag, cwd=source)
     git("checkout", "--detach", "FETCH_HEAD", cwd=source)
     upstream_sha = git("rev-parse", "HEAD", cwd=source)
     git("apply", "--check", str(control / ".github/fork/source.patch"), cwd=source)

@@ -1,0 +1,8 @@
+{
+  "upstream_repository": "MetaCubeX/mihomo",
+  "upstream_tag": "v1.19.32",
+  "upstream_sha": "88dcbf7f1614a67c3b36b848ee3592dfa92ada36",
+  "anytls_reality": true,
+  "automation_sha": "ca9292a0b07cb890892c08d43ca2d606f28c169e",
+  "runtime_update_repository": "aldington-david/mihomo"
+}

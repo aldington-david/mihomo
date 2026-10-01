@@ -4,7 +4,7 @@ This fork adds AnyTLS REALITY to Mihomo by connecting the existing REALITY TLS i
 
 The `anytls-reality` branch maintains the small runtime patch and release automation. Each published tag contains the exact upstream stable source plus this patch and records its provenance in `.anytls-build.json`; release `build-info.json` also records the patched source SHA.
 
-Every hour, at minute 17, Actions checks for an upstream stable release. It strictly applies the patch, builds the desktop cores, runs TCP/UDP loopback and invalid-credential tests, and only then publishes a complete release. Patch conflicts or failed tests stop publication. Rerun the workflow to retry a failed build. Scheduled GitHub Actions may be delayed and public-repository schedules can be disabled after 60 days of inactivity; check the Actions page if no runs appear. No cross-repository token is required.
+Every hour, at minute 17, Actions checks for an upstream stable release. It strictly applies the patch, builds the desktop cores, runs TCP/UDP loopback and invalid-credential tests, and only then publishes a complete release. Patch conflicts or failed tests stop publication. Rerun the workflow to retry a failed build. An empty maintenance commit after 30 days keeps GitHub's 60-day inactivity rule from disabling the schedule; GitHub scheduling can still be delayed. No cross-repository token is required.
 
 ```yaml
 proxies:

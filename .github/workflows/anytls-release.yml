@@ -1,6 +1,9 @@
 name: Sync stable upstream and release AnyTLS REALITY
 
 on:
+  push:
+    branches: [anytls-reality]
+    paths: ['.github/fork/**', '.github/workflows/anytls-release.yml']
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -36,6 +39,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           UPSTREAM_TAG: ${{ inputs.upstream_tag }}
         run: python3 .github/fork/prepare.py
+      - name: Keep the scheduled synchronizer active
+        if: github.event_name == 'schedule'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$(( $(date +%s) - $(git log -1 --format=%ct) ))" -gt 2592000 ]; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --allow-empty -m 'Keep stable-release synchronization active'
+            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
+          fi
 
   build:
     needs: prepare

@@ -1,4 +1,6 @@
 """Prepare an auditable patched source tag from an official stable release."""
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +11,57 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 UPSTREAM = "MetaCubeX/mihomo"
+SOURCE_INPUTS = (
+    ".github/fork/prepare.py", ".github/fork/publish.py",
+    ".github/fork/source.patch", ".github/fork/anytls_reality_test.go",
+    ".github/fork/fork_test.go", "tests/cli/cli_windows_test.go",
+    "tests/cli/go.mod", "tests/cli/go.sum",
+)
+
+
+def asset_names(tag, metadata=False):
+    names = [f"mihomo-{target}-{tag}.{extension}" for target, extension in [
+        ("linux-amd64-v1", "gz"), ("linux-amd64-compatible", "gz"), ("linux-arm64", "gz"),
+        ("darwin-amd64-v1", "gz"), ("darwin-amd64-compatible", "gz"), ("darwin-arm64", "gz"),
+        ("windows-amd64-v1", "zip"), ("windows-amd64-compatible", "zip"),
+        ("windows-amd64-v1-go120", "zip"), ("windows-amd64-compatible-go120", "zip"),
+    ]]
+    return names + (["build-info.json", "version.txt", "sha256sum.txt"] if metadata else [])
+
+
+def check_published_assets(release, tag):
+    assets = release.get("assets", [])
+    if sorted(item["name"] for item in assets) != sorted(asset_names(tag, metadata=True)):
+        raise RuntimeError("Published release has missing or unexpected assets; refusing to skip or overwrite it")
+    if any(item.get("size", 0) <= 0 or item.get("state") != "uploaded" for item in assets):
+        raise RuntimeError("Published release has empty or incomplete assets; refusing to skip or overwrite it")
+
+
+def source_fingerprint(control):
+    digest = hashlib.sha256()
+    for name in SOURCE_INPUTS:
+        digest.update(name.encode("utf-8") + b"\0")
+        digest.update((control / name).read_text(encoding="utf-8").encode("utf-8") + b"\0")
+    return digest.hexdigest()
+
+
+def check_existing_source(contents, tag, repository, fingerprint):
+    try:
+        if not contents or contents.get("encoding") != "base64":
+            raise ValueError("Missing source provenance")
+        record = json.loads(base64.b64decode(contents["content"]))
+        if not isinstance(record, dict) or record.get("anytls_reality") is not True:
+            raise ValueError("Invalid source provenance")
+        expected = {"upstream_repository": UPSTREAM, "upstream_tag": tag,
+                    "anytls_reality": True, "runtime_update_repository": repository,
+                    "source_fingerprint": fingerprint}
+        if any(record.get(key) != value for key, value in expected.items()):
+            raise ValueError("Source provenance does not match this build")
+        if not re.fullmatch(r"[0-9a-f]{40}", record.get("upstream_sha", "")):
+            raise ValueError("Invalid upstream source commit")
+    except (KeyError, TypeError, ValueError) as error:
+        raise RuntimeError("Unpublished tag has missing or stale source provenance; "
+                           "back up and recreate the failed tag before retrying") from error
 
 
 def api(path):
@@ -54,14 +107,17 @@ def main():
     tag = stable_tag(release)
     existing = api(f"repos/{repository}/releases/tags/{tag}")
     if existing and not existing["draft"]:
+        check_published_assets(existing, tag)
         output(needed="false", tag=tag)
         print("Already published:", tag)
         return
     ref = api(f"repos/{repository}/git/ref/tags/{tag}")
+    fingerprint = source_fingerprint(control)
     if ref:
         record = api(f"repos/{repository}/contents/.anytls-build.json?ref={tag}")
-        if not record:
-            raise RuntimeError("Existing tag has no custom build provenance; refusing to reuse it")
+        check_existing_source(record, tag, repository, fingerprint)
+        if ref["object"]["type"] != "commit":
+            raise RuntimeError("Existing source tag must point directly to its generated commit")
         output(needed="true", tag=tag, sha=ref["object"]["sha"])
         return
     source = control / "build-source"
@@ -81,7 +137,7 @@ def main():
     shutil.copy2(control / "ANYTLS-REALITY.md", source / "ANYTLS-REALITY.md")
     record = {"upstream_repository": UPSTREAM, "upstream_tag": tag, "upstream_sha": upstream_sha,
               "anytls_reality": True, "automation_sha": os.environ["GITHUB_SHA"],
-              "runtime_update_repository": repository}
+              "runtime_update_repository": repository, "source_fingerprint": fingerprint}
     (source / ".anytls-build.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     git("config", "user.name", "github-actions[bot]", cwd=source)
     git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com", cwd=source)

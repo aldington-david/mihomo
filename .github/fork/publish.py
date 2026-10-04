@@ -4,17 +4,12 @@ import os
 from pathlib import Path
 import subprocess
 
-from prepare import api
+from prepare import api, asset_names, check_published_assets
 
 tag, sha = os.environ["TAG"], os.environ["SOURCE_SHA"]
 repository = os.environ["GITHUB_REPOSITORY"]
 dist = Path("dist")
-names = [f"mihomo-{target}-{tag}.{extension}" for target, extension in [
-    ("linux-amd64-v1", "gz"), ("linux-amd64-compatible", "gz"), ("linux-arm64", "gz"),
-    ("darwin-amd64-v1", "gz"), ("darwin-amd64-compatible", "gz"), ("darwin-arm64", "gz"),
-    ("windows-amd64-v1", "zip"), ("windows-amd64-compatible", "zip"),
-    ("windows-amd64-v1-go120", "zip"), ("windows-amd64-compatible-go120", "zip"),
-]]
+names = asset_names(tag)
 if sorted(path.name for path in dist.iterdir()) != sorted(names):
     raise RuntimeError("Missing or unexpected build artifacts")
 record = json.loads(Path(".anytls-build.json").read_text())
@@ -42,4 +37,8 @@ if not existing:
                     "--title", f"{tag} — AnyTLS + REALITY", "--notes-file", "release-notes.md"], check=True)
 subprocess.run(["gh", "release", "upload", tag, "--repo", repository, "--clobber",
                 *[str(path) for path in sorted(dist.iterdir())]], check=True)
+uploaded = api(f"repos/{repository}/releases/tags/{tag}")
+if not uploaded or not uploaded["draft"]:
+    raise RuntimeError("Expected a draft release before publication")
+check_published_assets(uploaded, tag)
 subprocess.run(["gh", "release", "edit", tag, "--repo", repository, "--draft=false", "--latest"], check=True)

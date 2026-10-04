@@ -6,6 +6,8 @@ The `anytls-reality` branch maintains the small runtime patch and release automa
 
 Every hour, at minute 17, Actions checks for an upstream stable release. It strictly applies the patch, builds the desktop cores, runs TCP/UDP loopback and invalid-credential tests, and only then publishes a complete release. Patch conflicts or failed tests stop publication. Rerun the workflow to retry a failed build. An empty maintenance commit after 30 days keeps GitHub's 60-day inactivity rule from disabling the schedule; GitHub scheduling can still be delayed. No cross-repository token is required.
 
+An existing published release is skipped only when all ten core archives and three metadata files are present, uploaded and nonempty. An unpublished source tag is reusable only when its upstream/fork identity and source-input fingerprint match the current patch, injected tests, and publishing scripts executed from that tag. If those inputs change after a failed build, the workflow stops for an explicit backup and recreation of that failed tag; it never silently moves a tag or overwrites a public release. Documentation-only changes do not invalidate the source fingerprint. Existing public releases do not need a new fingerprint.
+
 ```yaml
 proxies:
   - name: AnyTLS REALITY

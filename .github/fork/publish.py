@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from prepare import api, asset_names, check_published_assets
+from prepare import asset_names, check_published_assets, release_by_tag
 
 tag, sha = os.environ["TAG"], os.environ["SOURCE_SHA"]
 repository = os.environ["GITHUB_REPOSITORY"]
@@ -29,7 +29,7 @@ notes = (f"Custom AnyTLS + REALITY core based on {record['upstream_repository']}
          "Windows go120 assets retain Windows 7's Go 1.20 baseline; OS execution was not tested on Windows 7. "
          "Clients must download only from this fork. This is not an upstream official build.\n")
 Path("release-notes.md").write_text(notes)
-existing = api(f"repos/{repository}/releases/tags/{tag}")
+existing = release_by_tag(repository, tag)
 if existing and not existing["draft"]:
     raise RuntimeError("Refusing to overwrite a published release")
 if not existing:
@@ -37,7 +37,7 @@ if not existing:
                     "--title", f"{tag} — AnyTLS + REALITY", "--notes-file", "release-notes.md"], check=True)
 subprocess.run(["gh", "release", "upload", tag, "--repo", repository, "--clobber",
                 *[str(path) for path in sorted(dist.iterdir())]], check=True)
-uploaded = api(f"repos/{repository}/releases/tags/{tag}")
+uploaded = release_by_tag(repository, tag)
 if not uploaded or not uploaded["draft"]:
     raise RuntimeError("Expected a draft release before publication")
 check_published_assets(uploaded, tag)

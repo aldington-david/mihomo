@@ -4,8 +4,24 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from prepare import (SOURCE_INPUTS, UPSTREAM, asset_names, check_existing_source,
-                     check_published_assets, source_fingerprint, stable_tag)
+                     check_published_assets, release_by_tag, source_fingerprint, stable_tag)
+
+
+class DraftReleaseTest(unittest.TestCase):
+    def test_lookup_uses_release_id_and_only_not_found_is_optional(self):
+        with patch("prepare.subprocess.run") as command, patch("prepare.api") as api:
+            command.return_value = Mock(returncode=0, stdout=json.dumps({
+                "apiUrl": "https://api.github.com/repos/owner/core/releases/123"}))
+            api.return_value = {"draft": True, "assets": []}
+            self.assertTrue(release_by_tag("owner/core", "v1.2.3")["draft"])
+            api.assert_called_once_with("repos/owner/core/releases/123")
+            command.return_value = Mock(returncode=1, stderr="release not found\n")
+            self.assertIsNone(release_by_tag("owner/core", "v1.2.3"))
+            command.return_value = Mock(returncode=1, stderr="HTTP 403: forbidden")
+            with self.assertRaises(RuntimeError):
+                release_by_tag("owner/core", "v1.2.3")
 
 
 class StableReleaseTest(unittest.TestCase):

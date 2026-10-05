@@ -82,6 +82,17 @@ def git(*args, cwd=None):
     return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
 
 
+def release_by_tag(repository, tag):
+    result = subprocess.run(["gh", "release", "view", tag, "--repo", repository, "--json", "apiUrl"],
+                            capture_output=True, text=True)
+    if result.returncode:
+        if result.stderr.strip() == "release not found":
+            return None
+        raise RuntimeError(result.stderr)
+    release_id = int(json.loads(result.stdout)["apiUrl"].rsplit("/", 1)[1])
+    return api(f"repos/{repository}/releases/{release_id}")
+
+
 def stable_tag(release):
     if not release or release.get("draft") or release.get("prerelease"):
         raise ValueError("An official, published stable release is required")

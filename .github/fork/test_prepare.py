@@ -17,6 +17,9 @@ class DraftReleaseTest(unittest.TestCase):
             api.return_value = {"draft": True, "assets": []}
             self.assertTrue(release_by_tag("owner/core", "v1.2.3")["draft"])
             api.assert_called_once_with("repos/owner/core/releases/123")
+            api.return_value = None
+            with self.assertRaises(RuntimeError):
+                release_by_tag("owner/core", "v1.2.3")
             command.return_value = Mock(returncode=1, stderr="release not found\n")
             self.assertIsNone(release_by_tag("owner/core", "v1.2.3"))
             command.return_value = Mock(returncode=1, stderr="HTTP 403: forbidden")

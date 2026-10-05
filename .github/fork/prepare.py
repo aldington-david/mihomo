@@ -90,7 +90,10 @@ def release_by_tag(repository, tag):
             return None
         raise RuntimeError(result.stderr)
     release_id = int(json.loads(result.stdout)["apiUrl"].rsplit("/", 1)[1])
-    return api(f"repos/{repository}/releases/{release_id}")
+    release = api(f"repos/{repository}/releases/{release_id}")
+    if release is None:
+        raise RuntimeError("Resolved release ID is no longer available")
+    return release
 
 
 def stable_tag(release):
